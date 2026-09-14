@@ -1,0 +1,27 @@
+{
+  "name": "staff-pulse",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Дашборд мониторинга орг-структуры компании: дерево, аналитическая таблица, live-обновления",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w server && npm run build -w client",
+    "start": "npm run start -w server",
+    "test": "npm run test -w client",
+    "lint": "npm run lint -w client && npm run lint -w server",
+    "typecheck": "npm run typecheck -w client && npm run typecheck -w server",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "prettier": "^3.9.6"
+  }
+}
