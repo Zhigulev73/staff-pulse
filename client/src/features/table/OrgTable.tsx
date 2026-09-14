@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { type KeyboardEvent, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import {
   COLUMNS,
@@ -7,6 +7,7 @@ import {
   type SortState,
   sortRows,
 } from '@/features/table/columns';
+import { FlashCell } from '@/features/highlights/FlashCell';
 import { useDebouncedValue } from '@/features/table/useDebouncedValue';
 import { formatBudget, formatHeadcount, formatPerformance } from '@/shared/model/format';
 import { type AggregatedRow } from '@/shared/model/orgModel';
@@ -91,6 +92,7 @@ const SortMark = styled.span`
 
 const Tr = styled.tr<{ $selected: boolean }>`
   cursor: pointer;
+  outline-offset: -2px;
   background: ${({ theme, $selected }) => ($selected ? theme.colors.accentSoft : 'transparent')};
   box-shadow: ${({ theme, $selected }) =>
     $selected ? `inset 2px 0 0 ${theme.colors.accent}` : 'none'};
@@ -156,6 +158,45 @@ export function OrgTable({ rows, selectedId, onSelect }: OrgTableProps) {
     }));
   };
 
+  // Клавиатура: roving tabindex — в Tab-порядке одна строка, стрелки двигают фокус.
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
+  const activeIndex = Math.min(focusedIndex, Math.max(0, visibleRows.length - 1));
+
+  const focusRow = (index: number) => {
+    const row = visibleRows[index];
+    if (!row) return;
+    setFocusedIndex(index);
+    rowRefs.current.get(row.id)?.focus();
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTableSectionElement>) => {
+    const last = visibleRows.length - 1;
+    switch (event.key) {
+      case 'ArrowDown':
+        focusRow(Math.min(activeIndex + 1, last));
+        break;
+      case 'ArrowUp':
+        focusRow(Math.max(activeIndex - 1, 0));
+        break;
+      case 'Home':
+        focusRow(0);
+        break;
+      case 'End':
+        focusRow(last);
+        break;
+      case 'Enter':
+      case ' ': {
+        const row = visibleRows[activeIndex];
+        if (row) onSelect(row.id);
+        break;
+      }
+      default:
+        return;
+    }
+    event.preventDefault();
+  };
+
   return (
     <Wrapper>
       <Toolbar>
@@ -206,14 +247,23 @@ export function OrgTable({ rows, selectedId, onSelect }: OrgTableProps) {
                 })}
               </tr>
             </thead>
-            <tbody>
-              {visibleRows.map((row) => (
+            <tbody onKeyDown={handleKeyDown}>
+              {visibleRows.map((row, index) => (
                 <Tr
                   key={row.id}
+                  ref={(element) => {
+                    if (element) rowRefs.current.set(row.id, element);
+                    else rowRefs.current.delete(row.id);
+                  }}
+                  tabIndex={index === activeIndex ? 0 : -1}
                   $selected={row.id === selectedId}
                   aria-selected={row.id === selectedId}
                   data-row-id={row.id}
-                  onClick={() => onSelect(row.id)}
+                  onFocus={() => setFocusedIndex(index)}
+                  onClick={() => {
+                    setFocusedIndex(index);
+                    onSelect(row.id);
+                  }}
                 >
                   <Td $align="left" role="gridcell">
                     <NameCell $level={row.level}>{row.name}</NameCell>
@@ -222,14 +272,20 @@ export function OrgTable({ rows, selectedId, onSelect }: OrgTableProps) {
                     {row.level}
                   </Td>
                   <Td $align="right" role="gridcell">
-                    {formatHeadcount(row.totalHeadcount)}
+                    <FlashCell nodeId={row.id} field="totalHeadcount">
+                      {formatHeadcount(row.totalHeadcount)}
+                    </FlashCell>
                   </Td>
                   <Td $align="right" role="gridcell">
-                    {formatBudget(row.totalBudget)}
+                    <FlashCell nodeId={row.id} field="totalBudget">
+                      {formatBudget(row.totalBudget)}
+                    </FlashCell>
                   </Td>
                   <Td $align="right" role="gridcell">
-                    <PerformanceDot value={row.avgPerformance} withValue={false} />
-                    {formatPerformance(row.avgPerformance)}
+                    <FlashCell nodeId={row.id} field="avgPerformance">
+                      <PerformanceDot value={row.avgPerformance} withValue={false} />
+                      {formatPerformance(row.avgPerformance)}
+                    </FlashCell>
                   </Td>
                 </Tr>
               ))}

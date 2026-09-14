@@ -4,7 +4,9 @@ import { OrgTable } from '@/features/table/OrgTable';
 import { OrgTree } from '@/features/tree/OrgTree';
 import { useExpansion } from '@/features/tree/useExpansion';
 import { useOrgTree } from '@/shared/api/useOrgTree';
+import { useOrgTreeLive } from '@/shared/live/useOrgTreeLive';
 import { getOrgModel, rowsFromModel } from '@/shared/model/orgModel';
+import { ConnectionIndicator } from '@/shared/ui/ConnectionIndicator';
 import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StatusPanel';
 import { ViewToggle, type ViewMode } from '@/shared/ui/ViewToggle';
 
@@ -75,6 +77,7 @@ const PanelTitle = styled.h2`
 
 export function App() {
   const query = useOrgTree();
+  const live = useOrgTreeLive();
   const model = query.data ? getOrgModel(query.data.nodes) : null;
   const rows = model ? rowsFromModel(model) : null;
 
@@ -128,7 +131,10 @@ export function App() {
           <Title>Staff Pulse</Title>
           <Subtitle>Орг-структура компании: дивизионы → отделы → команды</Subtitle>
         </div>
-        <Controls>{hasData && <ViewToggle value={view} onChange={setView} />}</Controls>
+        <Controls>
+          {hasData && <ViewToggle value={view} onChange={setView} />}
+          <ConnectionIndicator info={live} />
+        </Controls>
       </Header>
       {content}
     </Page>

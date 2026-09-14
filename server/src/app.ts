@@ -1,7 +1,8 @@
 import express, { type Express, type Request } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { type OrgStore } from './store.js';
+import { createSseHandler } from './sse.js';
+import { formatEtag, type OrgStore } from './store.js';
 
 export interface AppOptions {
   /** Каталог со собранным клиентом; если существует — раздаём статику (prod-режим). */
@@ -54,7 +55,7 @@ export function createApp(store: OrgStore, options: AppOptions = {}): Express {
         break;
     }
 
-    const etag = `"v${store.getVersion()}"`;
+    const etag = formatEtag(store.getVersion());
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('ETag', etag);
 
@@ -65,6 +66,8 @@ export function createApp(store: OrgStore, options: AppOptions = {}): Express {
 
     res.json(store.getNodes());
   });
+
+  app.get('/api/org-tree/events', createSseHandler(store));
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, version: store.getVersion() });

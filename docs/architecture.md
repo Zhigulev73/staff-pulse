@@ -6,11 +6,14 @@
 ┌──────────────────────────────────────────────────────────────────────┐
 │ server/src — mock API (Express)                                      │
 │   generate.ts  детерминированная генерация ≈60 узлов, 3 уровня        │
-│   store.ts     in-memory стор + версия данных                          │
+│   store.ts     in-memory стор: версия, буфер патчей, подписки          │
+│   simulator.ts раз в 2–5 с меняет 1–2 поля случайного узла             │
+│   sse.ts       GET /api/org-tree/events: hello/patch/resync/ping,      │
+│                досылка по Last-Event-ID                                │
 │   app.ts       GET /api/org-tree (ETag/304, dev-сценарии), статика     │
 │   index.ts     http-сервер, graceful shutdown                          │
 └──────────────────────────────────────────────────────────────────────┘
-                  │ HTTP JSON (в dev проксируется Vite: /api → :4000)
+        │ HTTP JSON + SSE (в dev проксируется Vite: /api → :4000)
 ┌──────────────────────────────────────────────────────────────────────┐
 │ client/src/shared/api — доступ к данным                              │
 │   schema.ts      zod-схема узла и ответа; InvalidResponseError         │
@@ -18,17 +21,24 @@
 │   queryClient.ts TanStack Query: staleTime 5 с, retry 1               │
 │   useOrgTree.ts  хук-источник правды: кэш ['org-tree'] = {nodes, etag} │
 ├──────────────────────────────────────────────────────────────────────┤
+│ client/src/shared/live — live-канал                                  │
+│   liveClient.ts   SSE-клиент: backoff + jitter, watchdog, lastEventId  │
+│   useOrgTreeLive  патч → setQueryData; hello/seq-gap/resync → рефетч   │
+├──────────────────────────────────────────────────────────────────────┤
 │ client/src/shared/model — чистые вычисления, без React               │
 │   orgModel.ts    buildModel (дерево + агрегаты), getOrgModel (мемо),   │
 │                  rowsFromModel (строки таблицы), ancestorIds           │
+│   patchModel.ts  инкрементальный пересчёт по цепочке узел → предки     │
+│   applyPatch.ts  патч → новый массив узлов + регистрация модели        │
 ├──────────────────────────────────────────────────────────────────────┤
 │ client/src/features — UI-фичи                                        │
-│   tree/          OrgTree, TreeItem, useExpansion (раскрытые узлы)      │
+│   tree/          OrgTree, TreeItem, useExpansion, useTreeKeyboard      │
 │   table/         OrgTable, columns (sortRows/filterRows), дебаунс      │
+│   highlights/    highlightStore (useSyncExternalStore), FlashCell      │
 ├──────────────────────────────────────────────────────────────────────┤
 │ client/src/shared/ui, shared/theme — примитивы и дизайн-токены        │
 │   StatusPanel (загрузка / ошибка / пусто), PerformanceDot, Button,     │
-│   ViewToggle (Дерево / Таблица)                                        │
+│   ViewToggle (Дерево / Таблица), ConnectionIndicator                   │
 │   theme.ts (токены), GlobalStyle, styled.d.ts                          │
 ├──────────────────────────────────────────────────────────────────────┤
 │ client/src/app — композиция: Providers (Query, Theme), App            │
@@ -75,11 +85,49 @@
 Фильтр и сортировка — локальное состояние `OrgTable`: они не влияют на дерево и на
 агрегаты, поэтому в общее состояние не поднимаются.
 
+## Поток live-обновлений
+
+```
+simulator ──applyChange──▶ store ──subscribe──▶ sse.ts ══ event: patch ══▶ liveClient
+                            │ version++, буфер                                 │ zod, seq
+                            ▼                                                  ▼
+                     GET /api/org-tree                                  useOrgTreeLive
+                     ETag "v<version>"                                         │
+                                                        setQueryData(['org-tree'], applyPatch)
+                                                                               │
+                                              ┌────────────────────────────────┴──────────────┐
+                                              ▼                                               ▼
+                                   новый массив nodes                              highlightStore.flash(keys)
+                                   (заменён 1 объект)                                         │
+                                              │                                               ▼
+                                   patchModel → registerModel                    FlashCell ячеек узла и предков
+                                              │                                        (CSS-анимация 1.5 с)
+                                              ▼
+                                   getOrgModel(nodes) — мгновенно
+                                              │
+                                              ▼
+                                   OrgTree / OrgTable (перерисовка только затронутых строк)
+```
+
+1. `useOrgTreeLive` открывает SSE-поток при монтировании `App` и закрывает при
+   размонтировании (`liveClient.stop()`).
+2. `hello { version, etag, replay }` — если досылки не будет и `etag` отличается от
+   кэша, кэш инвалидируется (данные изменились между `GET` и подключением).
+3. `patch` валидируется схемой, проверяется непрерывность `seq`; затем `applyPatch`
+   кладёт в кэш новый массив узлов и регистрирует инкрементальную модель.
+4. Затронутые ячейки (изменённые поля узла + агрегаты узла и предков) получают
+   подсветку через `highlightStore`; каждая `FlashCell` подписана на свой ключ.
+5. Обрыв: `liveClient` закрывает соединение и переподключается по экспоненциальному
+   backoff, статус идёт в `ConnectionIndicator`. При реконнекте передаётся
+   `lastEventId`; сервер досылает пропущенное или присылает `resync` → один рефетч.
+
 ## Кэширование и лишние запросы
 
 - `staleTime: 5000` — окно, в котором повторные подписки на ключ не порождают запрос.
 - `refetchOnWindowFocus` и `refetchOnReconnect` выключены: актуальность после первой
-  загрузки будет поддерживать live-канал (этап 3), а не «рефетч на всякий случай».
+  загрузки поддерживает live-канал, а не «рефетч на всякий случай».
+- Полный рефетч из live-канала происходит только по сигналу расхождения: `resync`,
+  пропуск `seq`, несовпадение `etag` в `hello` без досылки.
 - ETag/304: даже когда запрос всё же уходит (например, по кнопке «Повторить»), при
   неизменных данных сервер не шлёт тело, а кэш сохраняет прежний объект. Инвалидация
   происходит только при реальном изменении версии данных.

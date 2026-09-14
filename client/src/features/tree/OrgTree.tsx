@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import { TreeItem } from '@/features/tree/TreeItem';
 import { labelId } from '@/features/tree/treeIds';
+import { useTreeKeyboard } from '@/features/tree/useTreeKeyboard';
 import { type OrgModel, type TreeNode } from '@/shared/model/orgModel';
 
 /** Длительность анимации раскрытия; должна совпадать с theme.duration.expand. */
@@ -39,23 +40,50 @@ interface OrgTreeProps {
 
 interface BranchProps extends Omit<OrgTreeProps, 'model'> {
   nodes: TreeNode[];
+  /** Узел, который сейчас в Tab-порядке (roving tabindex). */
+  activeId: string | null;
+  onItemFocus: (id: string) => void;
 }
 
-function TreeLevel({ nodes, expandedIds, selectedId, onToggle, onSelect }: BranchProps) {
+/* Фокус получает li (treeitem), а кольцо рисуется на его строке, не на всём поддереве. */
+const Item = styled.li`
+  &:focus-visible {
+    outline: none;
+  }
+
+  &:focus-visible > :first-child {
+    outline: 2px solid ${({ theme }) => theme.colors.focusRing};
+    outline-offset: -2px;
+  }
+`;
+
+function TreeLevel({
+  nodes,
+  expandedIds,
+  selectedId,
+  activeId,
+  onItemFocus,
+  onToggle,
+  onSelect,
+}: BranchProps) {
   return (
     <List role="group">
       {nodes.map((node) => {
         const expanded = expandedIds.has(node.id);
         const hasChildren = node.children.length > 0;
         return (
-          <li
+          <Item
             key={node.id}
             role="treeitem"
+            tabIndex={node.id === activeId ? 0 : -1}
             aria-level={node.level}
             aria-labelledby={labelId(node.id)}
             aria-expanded={hasChildren ? expanded : undefined}
             aria-selected={node.id === selectedId}
             data-node-id={node.id}
+            onFocus={(event) => {
+              if (event.target === event.currentTarget) onItemFocus(node.id);
+            }}
           >
             <TreeItem
               node={node}
@@ -73,13 +101,15 @@ function TreeLevel({ nodes, expandedIds, selectedId, onToggle, onSelect }: Branc
                     nodes={node.children}
                     expandedIds={expandedIds}
                     selectedId={selectedId}
+                    activeId={activeId}
+                    onItemFocus={onItemFocus}
                     onToggle={onToggle}
                     onSelect={onSelect}
                   />
                 </BranchInner>
               </Branch>
             )}
-          </li>
+          </Item>
         );
       })}
     </List>
@@ -98,6 +128,14 @@ const Root = styled.div`
 /** Интерактивное дерево орг-структуры (controlled: раскрытие и выбор хранит родитель). */
 export function OrgTree({ model, expandedIds, selectedId, onToggle, onSelect }: OrgTreeProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const { activeId, handleKeyDown, handleItemFocus } = useTreeKeyboard({
+    model,
+    expandedIds,
+    selectedId,
+    rootRef,
+    onToggle,
+    onSelect,
+  });
 
   // Выбранный узел (в т.ч. выбранный из таблицы) прокручивается в видимую область.
   // Второй вызов — после окончания анимации раскрытия ветки, когда высота уже финальная.
@@ -113,11 +151,13 @@ export function OrgTree({ model, expandedIds, selectedId, onToggle, onSelect }: 
   }, [selectedId]);
 
   return (
-    <Root ref={rootRef} role="tree" aria-label="Орг-структура">
+    <Root ref={rootRef} role="tree" aria-label="Орг-структура" onKeyDown={handleKeyDown}>
       <TreeLevel
         nodes={model.roots}
         expandedIds={expandedIds}
         selectedId={selectedId}
+        activeId={activeId}
+        onItemFocus={handleItemFocus}
         onToggle={onToggle}
         onSelect={onSelect}
       />

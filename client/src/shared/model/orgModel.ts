@@ -134,6 +134,11 @@ export function registerModel(nodes: readonly OrgNode[], model: OrgModel): void 
 
 const rowsCache = new WeakMap<OrgModel, AggregatedRow[]>();
 
+/** Регистрирует строки, собранные инкрементально (см. patchModel). */
+export function registerRows(model: OrgModel, rows: AggregatedRow[]): void {
+  rowsCache.set(model, rows);
+}
+
 /** Строки таблицы из модели; мемоизировано по ссылке на модель. */
 export function rowsFromModel(model: OrgModel): AggregatedRow[] {
   const cached = rowsCache.get(model);

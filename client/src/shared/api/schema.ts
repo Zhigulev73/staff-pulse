@@ -42,3 +42,19 @@ export function parseOrgTree(json: unknown): OrgNode[] {
   }
   return result.data;
 }
+
+/** Live-патч одного узла из SSE-потока. */
+export const orgPatchSchema = z.object({
+  seq: z.int().min(1),
+  nodeId: z.string().min(1),
+  changes: z.object({
+    headcount: z.int().min(0).optional(),
+    budget: z.number().min(0).optional(),
+    performance: z.number().min(0).max(100).optional(),
+  }),
+  updatedAt: z.iso.datetime({ offset: true }),
+  etag: z.string().min(1),
+});
+
+export type OrgPatch = z.infer<typeof orgPatchSchema>;
+export type MutableField = keyof OrgPatch['changes'];

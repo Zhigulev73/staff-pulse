@@ -1,4 +1,5 @@
 import styled from 'styled-components';
+import { FlashCell } from '@/features/highlights/FlashCell';
 import { labelId } from '@/features/tree/treeIds';
 import { type TreeNode } from '@/shared/model/orgModel';
 import { PerformanceDot } from '@/shared/ui/PerformanceDot';
@@ -95,8 +96,14 @@ export function TreeItem({ node, expanded, selected, onToggle, onSelect }: TreeI
       <Name id={labelId(node.id)} $level={node.level}>
         {node.name}
       </Name>
-      <Headcount>{node.headcount} чел.</Headcount>
-      <PerformanceDot value={node.performance} />
+      <Headcount>
+        <FlashCell nodeId={node.id} field="headcount">
+          {node.headcount} чел.
+        </FlashCell>
+      </Headcount>
+      <FlashCell nodeId={node.id} field="performance">
+        <PerformanceDot value={node.performance} />
+      </FlashCell>
     </Row>
   );
 }

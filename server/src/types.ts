@@ -24,4 +24,6 @@ export interface OrgPatch {
   nodeId: string;
   changes: Partial<Pick<OrgNode, MutableField>>;
   updatedAt: string;
+  /** ETag снимка после применения патча — клиент обновляет им свой If-None-Match. */
+  etag: string;
 }
