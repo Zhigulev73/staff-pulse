@@ -1,19 +1,22 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import styled from 'styled-components';
+import { OrgTable } from '@/features/table/OrgTable';
 import { OrgTree } from '@/features/tree/OrgTree';
 import { useExpansion } from '@/features/tree/useExpansion';
 import { useOrgTree } from '@/shared/api/useOrgTree';
-import { getOrgModel } from '@/shared/model/orgModel';
+import { getOrgModel, rowsFromModel } from '@/shared/model/orgModel';
 import { EmptyState, ErrorState, LoadingState } from '@/shared/ui/StatusPanel';
+import { ViewToggle, type ViewMode } from '@/shared/ui/ViewToggle';
 
 const Page = styled.main`
-  max-width: 1440px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: ${({ theme }) => theme.space.xl};
 `;
 
 const Header = styled.header`
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: ${({ theme }) => theme.space.lg};
@@ -31,11 +34,34 @@ const Subtitle = styled.p`
   color: ${({ theme }) => theme.colors.textMuted};
 `;
 
-const Panel = styled.section`
+const Controls = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space.lg};
+`;
+
+/** До 1280px — одна панель по переключателю, от 1280px — split-view. */
+const Layout = styled.div`
+  display: grid;
+  gap: ${({ theme }) => theme.space.lg};
+  align-items: start;
+
+  @media (min-width: ${({ theme }) => theme.breakpoints.split}) {
+    grid-template-columns: minmax(380px, 5fr) minmax(0, 7fr);
+  }
+`;
+
+const Panel = styled.section<{ $visible: boolean }>`
+  display: ${({ $visible }) => ($visible ? 'block' : 'none')};
+  min-width: 0;
   padding: ${({ theme }) => theme.space.md};
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radius.md};
   background: ${({ theme }) => theme.colors.surface};
+
+  @media (min-width: ${({ theme }) => theme.breakpoints.split}) {
+    display: block;
+  }
 `;
 
 const PanelTitle = styled.h2`
@@ -50,28 +76,48 @@ const PanelTitle = styled.h2`
 export function App() {
   const query = useOrgTree();
   const model = query.data ? getOrgModel(query.data.nodes) : null;
-  const { expandedIds, toggle } = useExpansion(model);
+  const rows = model ? rowsFromModel(model) : null;
+
+  const { expandedIds, toggle, reveal } = useExpansion(model);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<ViewMode>('tree');
+
+  /** Выбор из таблицы: выделить узел, раскрыть его ветку и показать в дереве. */
+  const selectFromTable = useCallback(
+    (id: string) => {
+      setSelectedId(id);
+      reveal(id);
+    },
+    [reveal],
+  );
+
+  const hasData = model !== null && rows !== null && model.roots.length > 0;
 
   let content;
   if (query.isPending) {
     content = <LoadingState />;
   } else if (query.isError) {
     content = <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
-  } else if (!model || model.roots.length === 0) {
+  } else if (!hasData) {
     content = <EmptyState />;
   } else {
     content = (
-      <Panel>
-        <PanelTitle>Дерево</PanelTitle>
-        <OrgTree
-          model={model}
-          expandedIds={expandedIds}
-          selectedId={selectedId}
-          onToggle={toggle}
-          onSelect={setSelectedId}
-        />
-      </Panel>
+      <Layout>
+        <Panel $visible={view === 'tree'} aria-label="Дерево орг-структуры">
+          <PanelTitle>Дерево</PanelTitle>
+          <OrgTree
+            model={model}
+            expandedIds={expandedIds}
+            selectedId={selectedId}
+            onToggle={toggle}
+            onSelect={setSelectedId}
+          />
+        </Panel>
+        <Panel $visible={view === 'table'} aria-label="Аналитическая таблица">
+          <PanelTitle>Аналитическая таблица</PanelTitle>
+          <OrgTable rows={rows} selectedId={selectedId} onSelect={selectFromTable} />
+        </Panel>
+      </Layout>
     );
   }
 
@@ -82,6 +128,7 @@ export function App() {
           <Title>Staff Pulse</Title>
           <Subtitle>Орг-структура компании: дивизионы → отделы → команды</Subtitle>
         </div>
+        <Controls>{hasData && <ViewToggle value={view} onChange={setView} />}</Controls>
       </Header>
       {content}
     </Page>

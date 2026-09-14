@@ -37,6 +37,7 @@ export function generateOrgTree(options: GenerateOptions = {}): OrgNode[] {
   const int = createIntPicker(rng);
   const now = options.now ?? (() => new Date().toISOString());
   const nodes: OrgNode[] = [];
+  const teamNameUses = new Map<string, number>();
   let counter = 0;
 
   const push = (
@@ -72,8 +73,12 @@ export function generateOrgTree(options: GenerateOptions = {}): OrgNode[] {
       const teamNames = [...TEAM_NAMES];
 
       for (let t = 0; t < teamCount; t += 1) {
-        const teamName = teamNames.splice(int(0, teamNames.length - 1), 1)[0];
-        push(teamName ?? `Команда ${t + 1}`, department.id, [3, 16], [600, 1100]);
+        const baseName = teamNames.splice(int(0, teamNames.length - 1), 1)[0] ?? 'Команда';
+        // Одинаковые названия в разных отделах получают порядковый номер, чтобы
+        // строки таблицы различались без обращения к дереву.
+        const uses = (teamNameUses.get(baseName) ?? 0) + 1;
+        teamNameUses.set(baseName, uses);
+        push(uses === 1 ? baseName : `${baseName} ${uses}`, department.id, [3, 16], [600, 1100]);
       }
     }
   }

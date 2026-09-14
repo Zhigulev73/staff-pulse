@@ -1,7 +1,11 @@
+import { useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import { TreeItem } from '@/features/tree/TreeItem';
 import { labelId } from '@/features/tree/treeIds';
 import { type OrgModel, type TreeNode } from '@/shared/model/orgModel';
+
+/** Длительность анимации раскрытия; должна совпадать с theme.duration.expand. */
+export const EXPAND_DURATION_MS = 220;
 
 const List = styled.ul`
   margin: 0;
@@ -93,8 +97,23 @@ const Root = styled.div`
 
 /** Интерактивное дерево орг-структуры (controlled: раскрытие и выбор хранит родитель). */
 export function OrgTree({ model, expandedIds, selectedId, onToggle, onSelect }: OrgTreeProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Выбранный узел (в т.ч. выбранный из таблицы) прокручивается в видимую область.
+  // Второй вызов — после окончания анимации раскрытия ветки, когда высота уже финальная.
+  useEffect(() => {
+    if (!selectedId) return;
+    const scroll = () => {
+      const item = rootRef.current?.querySelector<HTMLElement>(`[data-node-id="${selectedId}"]`);
+      item?.firstElementChild?.scrollIntoView?.({ block: 'nearest' });
+    };
+    scroll();
+    const timer = setTimeout(scroll, EXPAND_DURATION_MS + 20);
+    return () => clearTimeout(timer);
+  }, [selectedId]);
+
   return (
-    <Root role="tree" aria-label="Орг-структура">
+    <Root ref={rootRef} role="tree" aria-label="Орг-структура">
       <TreeLevel
         nodes={model.roots}
         expandedIds={expandedIds}
